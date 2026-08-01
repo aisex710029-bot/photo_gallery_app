@@ -65,23 +65,23 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
                 children: [
                   Icon(Icons.crop_free, size: 80, color: Colors.grey[400]),
                   const SizedBox(height: 16),
-                  const Text('點擊右下角按鈕選擇照片\n可用雙指在視窗內放大/縮小檢視局部',
+                  const Text('點擊右下角按鈕選擇照片\n可在小視窗內雙指縮放移動觀察',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey, fontSize: 15)),
                 ],
               ),
             )
-          // 雙排網格固定視窗 (2 Column)
+          // 2 Column 雙排網格
           : GridView.builder(
               padding: const EdgeInsets.all(8),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2, // 2 Column 雙排
+                crossAxisCount: 2, // 2 Column
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 0.85, // 固定小視窗的比例
+                childAspectRatio: 0.8, // 視窗長寬比
               ),
               itemCount: _imageList.length,
-              itemBuilder: (context, index) { summer:
+              itemBuilder: (context, index) {
                 return WindowImageCard(
                   key: ValueKey(_imageList[index].path),
                   imageFile: _imageList[index],
@@ -120,7 +120,6 @@ class _WindowImageCardState extends State<WindowImageCard> {
   final TransformationController _transformationController =
       TransformationController();
 
-  // 雙擊照片重置縮放狀態
   void _resetZoom() {
     _transformationController.value = Matrix4.identity();
   }
@@ -128,53 +127,56 @@ class _WindowImageCardState extends State<WindowImageCard> {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 3,
-      clipBehavior: Clip.antiAlias, // 把超過視窗邊界的圖片剪裁掉 (視窗效果)
+      elevation: 4,
+      clipBehavior: Clip.antiAlias, // 把溢出的圖片剪裁掉 (小視窗效果)
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.deepPurple.shade100, width: 1.5),
       ),
       child: Stack(
         children: [
-          // 1. 小視窗內部的「觀察鏡頭」：可以縮放、移動圖片
-          GestureDetector(
-            onDoubleTap: _resetZoom, // 雙擊恢復預設比例
-            child: Positioned.fill(
-              child: InteractiveViewer(
-                transformationController: _transformationController,
-                clipBehavior: Clip.hardEdge, // 關鍵：把圖片限制在視窗內部，不溢出
-                minScale: 0.5, // 允許縮小看全貌
-                maxScale: 6.0, // 允許放大到 6 倍看細節
-                panEnabled: true, // 允許滑動看局部
-                scaleEnabled: true, // 允許雙指縮放
-                child: Center(
-                  child: Image.file(
-                    File(widget.imageFile.path),
-                    fit: BoxFit.contain, // 預設呈現全貌，縮放時可看局部
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Center(
-                        child: Icon(Icons.broken_image, color: Colors.grey),
-                      );
-                    },
+          // 1. 關鍵修復：用 LayoutBuilder 強制鎖死寬高，絕不讓圖片變 0 像素
+          Positioned.fill(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return GestureDetector(
+                  onDoubleTap: _resetZoom, // 雙擊還原大小
+                  child: InteractiveViewer(
+                    transformationController: _transformationController,
+                    clipBehavior: Clip.hardEdge, // 鎖在小視窗內
+                    minScale: 0.8,
+                    maxScale: 5.0,
+                    child: SizedBox(
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      child: Image.file(
+                        File(widget.imageFile.path),
+                        fit: BoxFit.contain, // 圖片預設完整顯示在視窗內
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Center(
+                            child: Icon(Icons.broken_image, color: Colors.grey),
+                          );
+                        },
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
 
-          // 2. 懸浮提示與控制按鈕
+          // 2. 右上角懸浮按鈕 (重置/刪除)
           Positioned(
-            top: 4,
-            right: 4,
+            top: 6,
+            right: 6,
             child: Row(
               children: [
-                // 重置按鈕 (還原預設大小)
                 GestureDetector(
                   onTap: _resetZoom,
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
+                      color: Colors.black.withOpacity(0.5),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -185,13 +187,12 @@ class _WindowImageCardState extends State<WindowImageCard> {
                   ),
                 ),
                 const SizedBox(width: 6),
-                // 刪除按鈕
                 GestureDetector(
                   onTap: widget.onDelete,
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
+                      color: Colors.black.withOpacity(0.5),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
