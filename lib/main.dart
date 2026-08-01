@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const MyApp());
@@ -28,20 +30,35 @@ class ImageGalleryScreen extends StatefulWidget {
 }
 
 class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
-  final List<String> _imageList = [];
+  // 儲存從手機相冊選取的本地圖片檔案路徑
+  final List<XFile> _imageList = [];
+  final ImagePicker _picker = ImagePicker();
 
-  void _addMockImage() {
-    setState(() {
-      int id = _imageList.length + 1;
-      _imageList.add('https://picsum.photos/id/${id * 15}/800/1000');
-    });
+  // 打開手機相冊選照片
+  Future<void> _pickImageFromGallery() async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85, // 適當壓縮圖片，增進顯示效能
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _imageList.add(pickedFile);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('選取圖片失敗或取消: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('動態相片展覽館 (支援縮放)'),
+        title: const Text('手機相冊展覽館 (2 Column)'),
         elevation: 2,
       ),
       body: _imageList.isEmpty
@@ -49,76 +66,97 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.photo_library_outlined, size: 80, color: Colors.grey[400]),
+                  Icon(Icons.add_photo_alternate_outlined,
+                      size: 80, color: Colors.grey[400]),
                   const SizedBox(height: 16),
-                  const Text('點擊右下角按鈕，動態新增卡片小視窗',
-                      style: TextStyle(color: Colors.grey, fontSize: 16)),
+                  const Text(
+                    '點擊右下角按鈕，開啟手機相冊選照片',
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
                 ],
               ),
             )
-          : ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.all(16),
+          // 雙排網格 (2 Column Grid)
+          : GridView.builder(
+              padding: const EdgeInsets.all(12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2, // 2 Column
+                crossAxisSpacing: 12, // 欄位左右間距
+                mainAxisSpacing: 12, // 欄位上下間距
+                childAspectRatio: 0.75, // 卡片高寬比
+              ),
               itemCount: _imageList.length,
               itemBuilder: (context, index) {
                 return DynamicImageCard(
-                  imageUrl: _imageList[index],
+                  imageFile: _imageList[index],
                   index: index + 1,
+                  onDelete: () {
+                    setState(() {
+                      _imageList.removeAt(index);
+                    });
+                  },
                 );
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addMockImage,
-        icon: const Icon(Icons.add_photo_alternate),
-        label: const Text('加載相冊圖片'),
+        onPressed: _pickImageFromGallery,
+        icon: const Icon(Icons.photo_library),
+        label: const Text('選擇相冊圖片'),
       ),
     );
   }
 }
 
 class DynamicImageCard extends StatelessWidget {
-  final String imageUrl;
+  final XFile imageFile;
   final int index;
+  final VoidCallback onDelete;
 
   const DynamicImageCard({
     super.key,
-    required this.imageUrl,
+    required this.imageFile,
     required this.index,
+    required this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 6,
-      margin: const EdgeInsets.only(right: 16, top: 20, bottom: 40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: 280,
-        padding: const EdgeInsets.all(12),
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
         child: Column(
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('小視窗 #$index',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const Icon(Icons.zoom_in, size: 18, color: Colors.grey),
+                Text(
+                  '照片 #$index',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                GestureDetector(
+                  onTap: onDelete,
+                  child: const Icon(Icons.close, size: 18, color: Colors.redAccent),
+                ),
               ],
             ),
-            const Divider(),
+            const Divider(height: 12),
             Expanded(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(6),
                 child: InteractiveViewer(
                   boundaryMargin: const EdgeInsets.all(20.0),
                   minScale: 0.5,
                   maxScale: 4.0,
-                  child: Image.network(
-                    imageUrl,
+                  child: Image.file(
+                    File(imageFile.path),
                     fit: BoxFit.contain,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return const Center(child: CircularProgressIndicator());
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Center(
+                        child: Icon(Icons.broken_image, color: Colors.grey),
+                      );
                     },
                   ),
                 ),
