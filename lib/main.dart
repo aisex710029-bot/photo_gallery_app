@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const MyApp());
@@ -30,9 +31,32 @@ class ImageGalleryScreen extends StatefulWidget {
 }
 
 class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
-  final List<XFile> _imageList = [];
+  List<String> _imagePaths = []; // 改為儲存路徑字串
   final ImagePicker _picker = ImagePicker();
+  bool _isLoading = true;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedImages(); // App 開啟時讀取舊資料
+  }
+
+  // 讀取原本存好的照片路徑
+  Future<void> _loadSavedImages() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _imagePaths = prefs.getStringList('saved_image_paths') ?? [];
+      _isLoading = false;
+    });
+  }
+
+  // 儲存照片路徑到手機本地
+  Future<void> _saveImagesToStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('saved_image_paths', _imagePaths);
+  }
+
+  // 選擇新照片
   Future<void> _pickImageFromGallery() async {
     try {
       final List<XFile> pickedFiles = await _picker.pickMultiImage(
@@ -41,8 +65,13 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
 
       if (pickedFiles.isNotEmpty) {
         setState(() {
-          _imageList.addAll(pickedFiles);
+          for (var file in pickedFiles) {
+            if (!_imagePaths.contains(file.path)) {
+              _imagePaths.add(file.path);
+            }
+          }
         });
+        await _saveImagesToStorage(); // 儲存更新後的清單
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -51,161 +80,163 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
     }
   }
 
+  // 刪除照片
+  Future<void> _deleteImage(int index) async {
+    setState(() {
+      _imagePaths.removeAt(index);
+    });
+    await _saveImagesToStorage(); // 刪除後同步更新本地記憶
+  }
+
+  // 開啟全螢幕預覽與縮放
+  void _openFullScreenViewer(String path) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => FullScreenImagePage(imagePath: path),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('圖片局部觀察館 (2 Column)'),
+        title: const Text('手機相冊展覽館'),
         elevation: 2,
       ),
-      body: _imageList.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.crop_free, size: 80, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  const Text('點擊右下角按鈕選擇照片\n可在小視窗內雙指縮放移動觀察',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey, fontSize: 15)),
-                ],
-              ),
-            )
-          // 2 Column 雙排網格
-          : GridView.builder(
-              padding: const EdgeInsets.all(8),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2, // 2 Column
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 0.8, // 視窗長寬比
-              ),
-              itemCount: _imageList.length,
-              itemBuilder: (context, index) {
-                return WindowImageCard(
-                  key: ValueKey(_imageList[index].path),
-                  imageFile: _imageList[index],
-                  onDelete: () {
-                    setState(() {
-                      _imageList.removeAt(index);
-                    });
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _imagePaths.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.photo_library_outlined,
+                          size: 80, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      const Text('點擊右下角按鈕選擇照片\n照片會自動儲存，重開 App 不會消失',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey, fontSize: 15)),
+                    ],
+                  ),
+                )
+              : GridView.builder(
+                  padding: const EdgeInsets.all(8),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2, // 2 Column 雙排小視窗
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 0.8,
+                  ),
+                  itemCount: _imagePaths.length,
+                  itemBuilder: (context, index) {
+                    final path = _imagePaths[index];
+                    return WindowImageCard(
+                      key: ValueKey(path),
+                      imagePath: path,
+                      onTap: () => _openFullScreenViewer(path),
+                      onDelete: () => _deleteImage(index),
+                    );
                   },
-                );
-              },
-            ),
+                ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _pickImageFromGallery,
-        icon: const Icon(Icons.photo_library),
+        icon: const Icon(Icons.add_photo_alternate),
         label: const Text('選擇照片'),
       ),
     );
   }
 }
 
-class WindowImageCard extends StatefulWidget {
-  final XFile imageFile;
+// 雙排小視窗卡片
+class WindowImageCard extends StatelessWidget {
+  final String imagePath;
+  final VoidCallback onTap;
   final VoidCallback onDelete;
 
   const WindowImageCard({
     super.key,
-    required this.imageFile,
+    required this.imagePath,
+    required this.onTap,
     required this.onDelete,
   });
 
   @override
-  State<WindowImageCard> createState() => _WindowImageCardState();
-}
-
-class _WindowImageCardState extends State<WindowImageCard> {
-  final TransformationController _transformationController =
-      TransformationController();
-
-  void _resetZoom() {
-    _transformationController.value = Matrix4.identity();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 4,
-      clipBehavior: Clip.antiAlias, // 把溢出的圖片剪裁掉 (小視窗效果)
+      elevation: 3,
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.deepPurple.shade100, width: 1.5),
       ),
       child: Stack(
         children: [
-          // 1. 關鍵修復：用 LayoutBuilder 強制鎖死寬高，絕不讓圖片變 0 像素
-          Positioned.fill(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return GestureDetector(
-                  onDoubleTap: _resetZoom, // 雙擊還原大小
-                  child: InteractiveViewer(
-                    transformationController: _transformationController,
-                    clipBehavior: Clip.hardEdge, // 鎖在小視窗內
-                    minScale: 0.8,
-                    maxScale: 5.0,
-                    child: SizedBox(
-                      width: constraints.maxWidth,
-                      height: constraints.maxHeight,
-                      child: Image.file(
-                        File(widget.imageFile.path),
-                        fit: BoxFit.contain, // 圖片預設完整顯示在視窗內
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Center(
-                            child: Icon(Icons.broken_image, color: Colors.grey),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                );
-              },
+          // 點擊小視窗直接開啟全螢幕檢視
+          InkWell(
+            onTap: onTap,
+            child: SizedBox.expand(
+              child: Image.file(
+                File(imagePath),
+                fit: BoxFit.cover, // 小視窗填滿預覽
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Icon(Icons.broken_image, color: Colors.grey),
+                  );
+                },
+              ),
             ),
           ),
-
-          // 2. 右上角懸浮按鈕 (重置/刪除)
+          // 右上角刪除按鈕
           Positioned(
             top: 6,
             right: 6,
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: _resetZoom,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.refresh,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                  ),
+            child: GestureDetector(
+              onTap: onDelete,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: widget.onDelete,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                  ),
+                child: const Icon(
+                  Icons.close,
+                  size: 16,
+                  color: Colors.white,
                 ),
-              ],
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// 全螢幕大圖縮放頁面
+class FullScreenImagePage extends StatelessWidget {
+  final String imagePath;
+
+  const FullScreenImagePage({super.key, required this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('圖片檢視 (雙指可縮放)', style: TextStyle(color: Colors.white)),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5.0, // 支援最高 5 倍放大檢視
+          child: Image.file(
+            File(imagePath),
+            fit: BoxFit.contain,
+          ),
+        ),
       ),
     );
   }
