@@ -10,7 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
-  image_picker: ^1.0.7 # 新增：手機相冊選擇套件
+  image_picker: ^1.0.7
+  shared_preferences: ^2.2.2 # 新增：永久儲存圖片路徑套件
 
 dev_dependencies:
   flutter_test:
